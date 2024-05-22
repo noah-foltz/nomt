@@ -145,14 +145,14 @@ pub fn verify<H: NodeHasher>(
     multi_proof: &MultiProof,
     root: Node,
 ) -> Result<VerifiedMultiProof, MultiProofVerificationError> {
-    let (new_root, external_siblings_used) =
-        verify_range::<H>(0, &multi_proof.sub_paths, &multi_proof.external_siblings)?;
+    let (new_root, siblings_used) =
+        verify_range::<H>(0, &multi_proof.sub_paths, &multi_proof.siblings)?;
 
     if root != new_root {
         return Err(MultiProofVerificationError::RootMismatch);
     }
 
-    if external_siblings_used != multi_proof.external_siblings.len() {
+    if siblings_used != multi_proof.siblings.len() {
         return Err(MultiProofVerificationError::TooManyExternalSiblings);
     }
 
@@ -161,7 +161,7 @@ pub fn verify<H: NodeHasher>(
         .iter()
         .map(|sub_path| VerifiedMultiPath {
             terminal: sub_path.terminal.clone(),
-            depth: sub_path.depth + sub_path.inner_siblings.len(),
+            depth: sub_path.depth,
         })
         .collect::<Vec<_>>();
     Ok(VerifiedMultiProof { inner: paths })
@@ -182,15 +182,15 @@ fn verify_range<H: NodeHasher>(
         // note: at a terminal node, 'external_siblings' is guaranteed to be empty.
         // hash up with the unique nodes and return that.
         let terminal_path = &sub_paths[0];
-        let unique_len = terminal_path.inner_siblings.len() + start_depth;
+        let unique_len = terminal_path.depth - start_depth;
 
         let node = hash_path::<H>(
             terminal_path.terminal.node::<H>(),
-            &terminal_path.terminal.path()[start_depth..unique_len],
-            terminal_path.inner_siblings.iter().rev().copied(),
+            &terminal_path.terminal.path()[start_depth..start_depth + unique_len],
+            external_siblings[..unique_len].iter().rev().copied(),
         );
 
-        return Ok((node, 0));
+        return Ok((node, unique_len));
     }
 
     let start_path = &sub_paths[0];
@@ -491,10 +491,7 @@ mod tests {
             path_proof_4.clone(),
         ]);
 
-        assert_eq!(
-            multi_proof.external_siblings,
-            vec![v0, e7, e6, e3, e2, e1, e5, e4]
-        );
+        assert_eq!(multi_proof.siblings, vec![v0, e7, e6, e3, e2, e1, e5, e4]);
 
         let verified = verify::<Blake3Hasher>(&multi_proof, root).unwrap();
         assert!(verified.confirm_value(&l1).unwrap());
